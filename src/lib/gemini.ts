@@ -1,4 +1,3 @@
-
 // Core functionality for interacting with Google's Gemini API
 
 // Types for our roadmap data structure
@@ -53,7 +52,8 @@ export async function generateRoadmap(pdfText: string, title: string): Promise<R
  * @returns {Promise<any>} - Raw API response
  */
 async function sendRoadmapPrompt(textContent: string, title: string): Promise<any> {
-  const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+  // Use the hard-coded API key
+  const GEMINI_API_KEY = 'AIzaSyDpohz7Vh-WRMO8XUOBoYNP1yc5EnAQLFs';
   const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent';
 
   if (!GEMINI_API_KEY) {
