@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import { FileUp, Upload } from "lucide-react";
+import { FileUp, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/layout/Header";
 import { Progress } from "@/components/ui/progress";
@@ -149,7 +149,7 @@ const Upload = () => {
                     
                     <div className="flex gap-3 justify-center">
                       <Button onClick={handleProcessPdf} className="bg-pathpdf-600 hover:bg-pathpdf-700">
-                        <Upload className="mr-2 h-4 w-4" />
+                        <UploadIcon className="mr-2 h-4 w-4" />
                         Process PDF
                       </Button>
                       <Button variant="outline" onClick={resetUpload}>
