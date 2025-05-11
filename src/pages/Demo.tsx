@@ -16,6 +16,7 @@ import {
   NodeChange,
   EdgeChange,
   NodeTypes,
+  BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import CustomNode from "@/components/roadmap/CustomNode";
@@ -186,7 +187,7 @@ const Demo = () => {
             >
               <Controls />
               <MiniMap zoomable pannable />
-              <Background variant="dots" gap={12} size={1} />
+              <Background variant={BackgroundVariant.DOTS} gap={12} size={1} />
             </ReactFlow>
           </div>
         </div>
