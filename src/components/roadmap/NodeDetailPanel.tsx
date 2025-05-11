@@ -20,10 +20,14 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ selectedNode, roadmap
     );
   }
 
+  // Type assertion to ensure label and description are treated as strings
+  const label = selectedNode.data.label as string;
+  const description = selectedNode.data.description as string;
+
   return (
     <div className="p-4">
-      <h2 className="text-xl font-semibold mb-2">{selectedNode.data.label}</h2>
-      <p className="text-gray-600 mb-4">{selectedNode.data.description}</p>
+      <h2 className="text-xl font-semibold mb-2">{label}</h2>
+      <p className="text-gray-600 mb-4">{description}</p>
       
       <Card>
         <CardContent className="p-4">
