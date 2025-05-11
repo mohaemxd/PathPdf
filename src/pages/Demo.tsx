@@ -187,7 +187,7 @@ const Demo = () => {
             >
               <Controls />
               <MiniMap zoomable pannable />
-              <Background variant={BackgroundVariant.DOTS} gap={12} size={1} />
+              <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
             </ReactFlow>
           </div>
         </div>
