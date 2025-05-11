@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import Header from "@/components/layout/Header";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
+import { useNavigate } from "react-router-dom";
+import { generateRoadmap, RoadmapData } from "@/lib/gemini";
 
 const Upload = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -12,6 +14,7 @@ const Upload = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const { toast } = useToast();
+  const navigate = useNavigate();
   
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -56,35 +59,57 @@ const Upload = () => {
     }
   };
   
-  const handleProcessPdf = () => {
+  const handleProcessPdf = async () => {
     if (!file) return;
     
     setIsProcessing(true);
     setProgress(0);
     
-    // Simulate processing steps
-    const simulateProcessing = () => {
-      const interval = setInterval(() => {
-        setProgress(prev => {
-          const newProgress = prev + 5;
-          if (newProgress >= 100) {
-            clearInterval(interval);
-            // Redirect to roadmap view after processing (in real app)
-            setTimeout(() => {
-              toast({
-                title: "PDF processed successfully",
-                description: "Your roadmap has been generated!",
-              });
-              // In a real app, we would redirect to the roadmap view here
-            }, 500);
-            return 100;
-          }
-          return newProgress;
-        });
-      }, 300);
-    };
-    
-    simulateProcessing();
+    try {
+      // Extract text from PDF
+      const pdfText = await extractTextFromPdf(file);
+      setProgress(30);
+      
+      // Generate roadmap data from extracted text
+      const roadmapData = await generateRoadmap(pdfText, file.name.replace('.pdf', ''));
+      setProgress(70);
+      
+      // Store the roadmap in local storage for now
+      // In a real app, we would save to database instead
+      localStorage.setItem('currentRoadmap', JSON.stringify(roadmapData));
+      
+      setProgress(100);
+      
+      toast({
+        title: "PDF processed successfully",
+        description: "Your roadmap has been generated!",
+      });
+      
+      // Navigate to roadmap view
+      setTimeout(() => {
+        navigate('/demo');
+      }, 500);
+    } catch (error) {
+      console.error("Error processing PDF:", error);
+      toast({
+        title: "Processing failed",
+        description: "There was an error processing your PDF.",
+        variant: "destructive",
+      });
+      setIsProcessing(false);
+    }
+  };
+  
+  const extractTextFromPdf = async (pdfFile: File): Promise<string> => {
+    // For this demo, we'll just simulate text extraction
+    // In a real implementation, you'd use a PDF extraction library
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve(`This is simulated text extraction from the PDF file "${pdfFile.name}".
+        The content would normally include all the text from your PDF document,
+        which would then be sent to the Gemini API for analysis and roadmap generation.`);
+      }, 1000);
+    });
   };
   
   const resetUpload = () => {

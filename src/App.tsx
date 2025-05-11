@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import Upload from "./pages/Upload";
 import Demo from "./pages/Demo";
+import Roadmaps from "./pages/Roadmaps";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -21,6 +22,7 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/upload" element={<Upload />} />
           <Route path="/demo" element={<Demo />} />
+          <Route path="/roadmaps" element={<Roadmaps />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
