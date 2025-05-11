@@ -2,7 +2,8 @@
 import { useState, useCallback } from "react";
 import Header from "@/components/layout/Header";
 import { Card, CardContent } from "@/components/ui/card";
-import ReactFlow, {
+import {
+  ReactFlow,
   Node,
   Edge,
   MiniMap,
