@@ -99,3 +99,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Move React Flow controls to the top right */
+.rf-controls-top-right {
+  top: 16px !important;
+  bottom: auto !important;
+  right: 16px !important;
+  left: auto !important;
+}
+
+@keyframes borderMove {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+.animate-border {
+  background-size: 200% 200%;
+  animation: borderMove 4s linear infinite alternate;
+}

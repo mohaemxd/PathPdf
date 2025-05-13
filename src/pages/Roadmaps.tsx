@@ -1,16 +1,53 @@
-
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import Header from "@/components/layout/Header";
-import { FileUp, ArrowRight } from "lucide-react";
+import { FileUp, ArrowRight, Trash2, Pencil, Search, Calendar, ArrowUpDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { RoadmapData } from "@/lib/gemini";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+type SortOrder = 'newest' | 'oldest' | 'title-asc' | 'title-desc';
+type DateFilter = 'all' | 'today' | 'week' | 'month' | 'year';
 
 const Roadmaps = () => {
   const [roadmaps, setRoadmaps] = useState<{id: string, title: string, created_at: string}[]>([]);
+  const [filteredRoadmaps, setFilteredRoadmaps] = useState<{id: string, title: string, created_at: string}[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [roadmapToDelete, setRoadmapToDelete] = useState<string | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [roadmapToEdit, setRoadmapToEdit] = useState<{id: string, title: string} | null>(null);
+  const [newTitle, setNewTitle] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -26,6 +63,7 @@ const Roadmaps = () => {
         }
         
         setRoadmaps(data || []);
+        setFilteredRoadmaps(data || []);
       } catch (error) {
         console.error("Error fetching roadmaps:", error);
       } finally {
@@ -36,14 +74,121 @@ const Roadmaps = () => {
     fetchRoadmaps();
   }, []);
 
+  // Filter and sort roadmaps whenever search, sort, or date filter changes
+  useEffect(() => {
+    let filtered = [...roadmaps];
+
+    // Apply search filter
+    if (searchQuery) {
+      filtered = filtered.filter(rm => 
+        rm.title.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    // Apply date filter
+    const now = new Date();
+    switch (dateFilter) {
+      case 'today':
+        filtered = filtered.filter(rm => {
+          const created = new Date(rm.created_at);
+          return created.toDateString() === now.toDateString();
+        });
+        break;
+      case 'week':
+        const weekAgo = new Date(now.setDate(now.getDate() - 7));
+        filtered = filtered.filter(rm => new Date(rm.created_at) >= weekAgo);
+        break;
+      case 'month':
+        const monthAgo = new Date(now.setMonth(now.getMonth() - 1));
+        filtered = filtered.filter(rm => new Date(rm.created_at) >= monthAgo);
+        break;
+      case 'year':
+        const yearAgo = new Date(now.setFullYear(now.getFullYear() - 1));
+        filtered = filtered.filter(rm => new Date(rm.created_at) >= yearAgo);
+        break;
+    }
+
+    // Apply sorting
+    switch (sortOrder) {
+      case 'newest':
+        filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        break;
+      case 'oldest':
+        filtered.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        break;
+      case 'title-asc':
+        filtered.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      case 'title-desc':
+        filtered.sort((a, b) => b.title.localeCompare(a.title));
+        break;
+    }
+
+    setFilteredRoadmaps(filtered);
+  }, [roadmaps, searchQuery, sortOrder, dateFilter]);
+
   const handleViewRoadmap = (id: string) => {
     navigate(`/roadmap/${id}`);
   };
 
+  const handleDeleteClick = (id: string) => {
+    setRoadmapToDelete(id);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!roadmapToDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from('roadmaps')
+        .delete()
+        .eq('id', roadmapToDelete);
+
+      if (error) throw error;
+
+      // Update local state to remove the deleted roadmap
+      setRoadmaps(prev => prev.filter(rm => rm.id !== roadmapToDelete));
+    } catch (error) {
+      console.error("Error deleting roadmap:", error);
+    } finally {
+      setDeleteDialogOpen(false);
+      setRoadmapToDelete(null);
+    }
+  };
+
+  const handleEditClick = (roadmap: {id: string, title: string}) => {
+    setRoadmapToEdit(roadmap);
+    setNewTitle(roadmap.title);
+    setEditDialogOpen(true);
+  };
+
+  const handleEditConfirm = async () => {
+    if (!roadmapToEdit || !newTitle.trim()) return;
+
+    try {
+      const { error } = await supabase
+        .from('roadmaps')
+        .update({ title: newTitle.trim() })
+        .eq('id', roadmapToEdit.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setRoadmaps(prev => prev.map(rm => 
+        rm.id === roadmapToEdit.id ? { ...rm, title: newTitle.trim() } : rm
+      ));
+    } catch (error) {
+      console.error("Error updating roadmap:", error);
+    } finally {
+      setEditDialogOpen(false);
+      setRoadmapToEdit(null);
+      setNewTitle("");
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen">
-      <Header />
-      
       <main className="flex-1 container py-8">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold">Your Roadmaps</h1>
@@ -51,6 +196,44 @@ const Roadmaps = () => {
             <FileUp className="mr-2 h-4 w-4" />
             Upload New PDF
           </Button>
+        </div>
+
+        {/* Search and Filter Section */}
+        <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
+            <Input
+              placeholder="Search roadmaps..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <Select value={dateFilter} onValueChange={(value: DateFilter) => setDateFilter(value)}>
+            <SelectTrigger>
+              <Calendar className="mr-2 h-4 w-4" />
+              <SelectValue placeholder="Filter by date" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All time</SelectItem>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="week">Last 7 days</SelectItem>
+              <SelectItem value="month">Last 30 days</SelectItem>
+              <SelectItem value="year">Last year</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={sortOrder} onValueChange={(value: SortOrder) => setSortOrder(value)}>
+            <SelectTrigger>
+              <ArrowUpDown className="mr-2 h-4 w-4" />
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest first</SelectItem>
+              <SelectItem value="oldest">Oldest first</SelectItem>
+              <SelectItem value="title-asc">Title (A-Z)</SelectItem>
+              <SelectItem value="title-desc">Title (Z-A)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         
         {isLoading ? (
@@ -65,22 +248,26 @@ const Roadmaps = () => {
               </Card>
             ))}
           </div>
-        ) : roadmaps.length === 0 ? (
+        ) : filteredRoadmaps.length === 0 ? (
           <div className="text-center py-12">
             <h3 className="text-xl font-medium text-gray-900 mb-2">
-              No roadmaps yet
+              {roadmaps.length === 0 ? "No roadmaps yet" : "No matching roadmaps"}
             </h3>
             <p className="text-gray-500 mb-8">
-              Upload a PDF to generate your first learning roadmap
+              {roadmaps.length === 0 
+                ? "Upload a PDF to generate your first learning roadmap"
+                : "Try adjusting your search or filters"}
             </p>
-            <Button onClick={() => navigate('/upload')}>
-              <FileUp className="mr-2 h-4 w-4" />
-              Upload PDF
-            </Button>
+            {roadmaps.length === 0 && (
+              <Button onClick={() => navigate('/upload')}>
+                <FileUp className="mr-2 h-4 w-4" />
+                Upload PDF
+              </Button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {roadmaps.map((roadmap) => (
+            {filteredRoadmaps.map((roadmap) => (
               <Card key={roadmap.id} className="hover:shadow-md transition-shadow">
                 <CardHeader>
                   <CardTitle>{roadmap.title}</CardTitle>
@@ -89,29 +276,84 @@ const Roadmaps = () => {
                   <p className="text-sm text-gray-500 mb-4">
                     Created on {new Date(roadmap.created_at).toLocaleDateString()}
                   </p>
-                  <Button 
-                    variant="outline"
-                    onClick={() => handleViewRoadmap(roadmap.id)}
-                  >
-                    View Roadmap
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline"
+                      onClick={() => handleViewRoadmap(roadmap.id)}
+                    >
+                      View Roadmap
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      size="icon"
+                      onClick={() => handleEditClick(roadmap)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => handleDeleteClick(roadmap.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
           </div>
         )}
-        
-        <div className="mt-12 p-6 bg-gray-50 border border-gray-200 rounded-lg">
-          <h3 className="text-xl font-semibold mb-4">What are Learning Roadmaps?</h3>
-          <p className="text-gray-600 mb-4">
-            Learning roadmaps are visual guides that help you navigate through complex subjects by breaking them down into manageable topics and showing the relationships between them.
-          </p>
-          <p className="text-gray-600">
-            Upload your educational PDF documents to PathPDF and we'll automatically generate an interactive roadmap that helps you understand the structure and progression of the material.
-          </p>
-        </div>
       </main>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the roadmap.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Roadmap Title</DialogTitle>
+            <DialogDescription>
+              Enter a new title for your roadmap.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="title">Title</Label>
+              <Input
+                id="title"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="Enter roadmap title"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditConfirm}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

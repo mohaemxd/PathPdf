@@ -1,12 +1,16 @@
-
 import { useState } from "react";
 import { FileUp, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import Header from "@/components/layout/Header";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
 import { useNavigate } from "react-router-dom";
 import { generateRoadmap, RoadmapData } from "@/lib/gemini";
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf';
+import { supabase } from "@/integrations/supabase/client";
+
+// Use the local worker file in public/
+const { GlobalWorkerOptions } = pdfjsLib;
+GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 const Upload = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -61,31 +65,43 @@ const Upload = () => {
   
   const handleProcessPdf = async () => {
     if (!file) return;
-    
     setIsProcessing(true);
     setProgress(0);
-    
     try {
-      // Extract text from PDF
-      const pdfText = await extractTextFromPdf(file);
+      // Extract structured content from PDF
+      const pdfContent = await extractTextFromPdf(file);
       setProgress(30);
-      
-      // Generate roadmap data from extracted text
-      const roadmapData = await generateRoadmap(pdfText, file.name.replace('.pdf', ''));
+      // Generate roadmap data from structured content
+      const roadmapData = await generateRoadmap(pdfContent, file.name.replace('.pdf', ''));
       setProgress(70);
-      
+      // Save roadmap to Supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { error } = await supabase.from('roadmaps').insert({
+          user_id: user.id,
+          title: roadmapData.title,
+          content: JSON.parse(JSON.stringify(roadmapData)),
+        });
+        if (error) {
+          toast({
+            title: "Failed to save roadmap",
+            description: error.message,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Roadmap saved!",
+            description: "Your roadmap has been saved to your account.",
+          });
+        }
+      }
       // Store the roadmap in local storage for now
-      // In a real app, we would save to database instead
       localStorage.setItem('currentRoadmap', JSON.stringify(roadmapData));
-      
       setProgress(100);
-      
       toast({
         title: "PDF processed successfully",
         description: "Your roadmap has been generated!",
       });
-      
-      // Navigate to roadmap view
       setTimeout(() => {
         navigate('/demo');
       }, 500);
@@ -93,23 +109,45 @@ const Upload = () => {
       console.error("Error processing PDF:", error);
       toast({
         title: "Processing failed",
-        description: "There was an error processing your PDF.",
+        description: error instanceof Error ? error.message : String(error),
         variant: "destructive",
       });
       setIsProcessing(false);
     }
   };
   
-  const extractTextFromPdf = async (pdfFile: File): Promise<string> => {
-    // For this demo, we'll just simulate text extraction
-    // In a real implementation, you'd use a PDF extraction library
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(`This is simulated text extraction from the PDF file "${pdfFile.name}".
-        The content would normally include all the text from your PDF document,
-        which would then be sent to the Gemini API for analysis and roadmap generation.`);
-      }, 1000);
-    });
+  // Improved extraction: returns structured content
+  const extractTextFromPdf = async (pdfFile: File): Promise<Array<{type: string, text: string}>> => {
+    const arrayBuffer = await pdfFile.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let structured: Array<{type: string, text: string}> = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      let lastFontSize = 0;
+      let paragraph = '';
+      for (const item of content.items) {
+        // @ts-ignore
+        const str = item.str;
+        // @ts-ignore
+        const fontSize = item.transform ? Math.abs(item.transform[0]) : 10;
+        // Heuristic: large font = heading, else paragraph
+        if (fontSize > 16) {
+          if (paragraph.trim()) {
+            structured.push({ type: 'paragraph', text: paragraph.trim() });
+            paragraph = '';
+          }
+          structured.push({ type: 'heading', text: str.trim() });
+        } else {
+          paragraph += str + ' ';
+        }
+        lastFontSize = fontSize;
+      }
+      if (paragraph.trim()) {
+        structured.push({ type: 'paragraph', text: paragraph.trim() });
+      }
+    }
+    return structured;
   };
   
   const resetUpload = () => {
@@ -119,9 +157,7 @@ const Upload = () => {
   };
 
   return (
-    <div className="flex flex-col min-h-screen">
-      <Header />
-      
+    <div className="flex flex-col min-h-screen">      
       <main className="flex-1 container py-8">
         <div className="max-w-3xl mx-auto">
           <h1 className="text-3xl font-bold mb-6">Upload PDF</h1>

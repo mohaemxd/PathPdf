@@ -1,12 +1,22 @@
 // Core functionality for interacting with Google's Gemini API
 
 // Types for our roadmap data structure
+export interface Resource {
+  type: string;
+  label: string;
+  url: string;
+  free: boolean;
+  discount?: string;
+}
+
 export interface RoadmapNode {
   id: string;
   title: string;
   description: string;
+  detailedDescription?: string;
   children: RoadmapNode[];
   parentId?: string;
+  resources: Resource[];
 }
 
 export interface RoadmapData {
@@ -15,29 +25,31 @@ export interface RoadmapData {
 }
 
 /**
- * Processes PDF text content and generates a hierarchical roadmap using Gemini API
- * @param {string} pdfText - The extracted text content from the PDF
+ * Processes PDF structured content and generates a hierarchical roadmap using Gemini API
+ * @param {Array<{type: string, text: string}>} structuredContent - The extracted structured content from the PDF
  * @param {string} title - The document title
  * @returns {Promise<RoadmapData>} - A hierarchical roadmap object
  */
-export async function generateRoadmap(pdfText: string, title: string): Promise<RoadmapData> {
+export async function generateRoadmap(structuredContent: Array<{type: string, text: string}>, title: string): Promise<RoadmapData> {
   try {
-    // Handle cases where PDF content is too large
-    const chunks = chunkContent(pdfText, 10000); // Split into chunks of ~10k chars
-    
+    // Convert structured content to a readable string for the prompt
+    const contentForPrompt = structuredContent.map(item => {
+      return item.type === 'heading' ? `\n# ${item.text}\n` : item.text;
+    }).join(' ');
+    // Handle cases where content is too large
+    const chunks = chunkContent(contentForPrompt, 10000); // Split into chunks of ~10k chars
     // We'll use the first chunk for initial analysis, then refine with more if needed
     const response = await sendRoadmapPrompt(chunks[0], title);
-    
+    console.log('Raw Gemini API response:', response);
     // Parse and validate the response
     const roadmapData = validateRoadmapData(response);
-    
+    console.log('Parsed roadmap data before validation:', roadmapData);
     // If we have multiple chunks and want to enhance the roadmap with more content
     // This could be implemented as a second pass refinement
     if (chunks.length > 1) {
       // This would be a more advanced implementation
       // Could use a second prompt to enhance specific branches with content from later chunks
     }
-    
     return roadmapData;
   } catch (error) {
     console.error("Error generating roadmap:", error);
@@ -47,54 +59,52 @@ export async function generateRoadmap(pdfText: string, title: string): Promise<R
 
 /**
  * Sends a prompt to Gemini API to generate roadmap structure
- * @param {string} textContent - Text content to analyze
+ * @param {string} textContent - Structured text content to analyze
  * @param {string} title - Document title for context
  * @returns {Promise<any>} - Raw API response
  */
 async function sendRoadmapPrompt(textContent: string, title: string): Promise<any> {
-  // Use the hard-coded API key
-  const GEMINI_API_KEY = 'AIzaSyDpohz7Vh-WRMO8XUOBoYNP1yc5EnAQLFs';
-  const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent';
-
-  if (!GEMINI_API_KEY) {
-    throw new Error("Gemini API key is not configured");
-  }
+  const GEMINI_API_KEY = 'AIzaSyDpohz7Vh-WRMO8XUOBoYNP1yc5EnAQLFs'; // Replace with your actual key
+  const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
   const prompt = `
-You are an expert system for analyzing educational content and creating hierarchical learning roadmaps.
+Given the following structured content from a PDF, generate a hierarchical learning roadmap as a JSON object with this exact structure:
 
-I'm providing the text content from a PDF document about "${title}".
-
-Your task:
-1. Identify the main topic/concept of this document
-2. Identify 3-7 major sub-topics or concepts
-3. For each sub-topic, identify further nested sub-topics (up to 3 levels deep)
-4. For each node, provide a brief (1-2 sentence) description that will help a student understand what this concept covers
-5. Make sure the hierarchy makes logical sense for learning progression
-
-Format your response as a strict JSON object following this structure exactly:
 {
-  "title": "Main Topic Name",
+  "title": "<roadmap title>",
   "rootNode": {
     "id": "node-1",
-    "title": "Main Topic Name",
-    "description": "Brief description of the main topic",
+    "title": "<root topic>",
+    "description": "<description>",
+    "resources": [
+      {
+        "type": "article|video|course|documentation|other",
+        "label": "<resource title>",
+        "url": "<resource url>",
+        "free": true|false,
+        "discount": "<optional discount or note>"
+      }
+    ],
     "children": [
       {
         "id": "node-2",
-        "title": "Sub-topic 1",
-        "description": "Brief description of sub-topic 1",
-        "children": []
+        "title": "<subtopic>",
+        "description": "<description>",
+        "resources": [ ... ],
+        "children": [ ... ]
       }
     ]
   }
 }
 
-Use "id" values like "node-1", "node-2", etc. Make sure every node has a unique ID.
-Make descriptions concise but informative for students trying to understand the topic.
-Return ONLY the JSON with NO additional explanation or text.
+- For each topic (node), provide a list of 2-4 learning resources (articles, videos(especially youtube videos, make sure to search for that as students like that resource, and give the correct youtube URL), courses, documentation, etc.) with their type, label, url, free (true/false), and optional discount.
+-For each Topic (node), make sure if the topic has talked about some different subtopics or examples/implementations/applications/functions/etc, you assign a subnode to each one of those sutopics.
+- Assign sequential "id" values ("node-1", "node-2", etc.) ensuring each node has a unique ID
+- Make the descriptions learner-focused, by referring to online recourses, so that you would be able to perfectly and concisely explain both WHAT the topic is about in detail and do not overlook any mentioned information in the content and WHY that topic matters, if the information is incomplete or lacks details you add those details
+-For the number of levels the hierarchical tree would have there are no limits, it would depend on the complexity of the content and the depth of the topic.
+- Return ONLY the JSON with NO additional explanation or text
 
-PDF Content:
+Structured PDF Content:
 ${textContent}
 `;
 
@@ -102,8 +112,7 @@ ${textContent}
     const response = await fetch(GEMINI_API_URL, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': GEMINI_API_KEY
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
@@ -124,7 +133,8 @@ ${textContent}
     
     // Extract the text content from Gemini's response
     if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-      throw new Error("Invalid response structure from Gemini API");
+      console.error("Invalid response structure from Gemini API", data);
+      throw new Error("Invalid response structure from Gemini API: " + JSON.stringify(data));
     }
     
     const textResponse = data.candidates[0].content.parts[0].text;
@@ -138,8 +148,8 @@ ${textContent}
       const jsonStr = jsonMatch ? jsonMatch[0].replace(/```json\n?|```/g, '') : textResponse;
       return JSON.parse(jsonStr);
     } catch (parseError) {
-      console.error("Failed to parse Gemini response:", parseError);
-      throw new Error("Failed to parse roadmap data from API response");
+      console.error("Failed to parse Gemini response:", parseError, textResponse);
+      throw new Error("Failed to parse roadmap data from API response: " + (parseError instanceof Error ? parseError.message : parseError));
     }
   } catch (error) {
     console.error("Gemini API request failed:", error);
@@ -185,6 +195,11 @@ function validateRoadmapData(data: any): RoadmapData {
     // Initialize children array if not present
     if (!Array.isArray(node.children)) {
       node.children = [];
+    }
+    
+    // Ensure resources array exists
+    if (!Array.isArray(node.resources)) {
+      node.resources = [];
     }
     
     // Add parent reference for easier navigation
