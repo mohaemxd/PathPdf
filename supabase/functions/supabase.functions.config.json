@@ -1,0 +1,5 @@
+{
+  "notion-auth": {
+    "verify_jwt": false
+  }
+} 
