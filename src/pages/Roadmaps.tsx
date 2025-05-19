@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileUp, ArrowRight, Trash2, Pencil, Search, Calendar, ArrowUpDown } from "lucide-react";
+import { FileUp, ArrowRight, Trash2, Pencil, Search, Calendar, ArrowUpDown, Star, StarOff, Star as StarFilled } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { RoadmapData } from "@/lib/gemini";
 import {
@@ -37,8 +37,8 @@ type SortOrder = 'newest' | 'oldest' | 'title-asc' | 'title-desc';
 type DateFilter = 'all' | 'today' | 'week' | 'month' | 'year';
 
 const Roadmaps = () => {
-  const [roadmaps, setRoadmaps] = useState<{id: string, title: string, created_at: string}[]>([]);
-  const [filteredRoadmaps, setFilteredRoadmaps] = useState<{id: string, title: string, created_at: string}[]>([]);
+  const [roadmaps, setRoadmaps] = useState<{id: string, title: string, created_at: string, favorite: boolean}[]>([]);
+  const [filteredRoadmaps, setFilteredRoadmaps] = useState<{id: string, title: string, created_at: string, favorite: boolean}[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [roadmapToDelete, setRoadmapToDelete] = useState<string | null>(null);
@@ -48,6 +48,7 @@ const Roadmaps = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -55,15 +56,21 @@ const Roadmaps = () => {
       try {
         const { data, error } = await supabase
           .from('roadmaps')
-          .select('id, title, created_at')
+          .select('id, title, created_at, favorite')
           .order('created_at', { ascending: false });
         
         if (error) {
           throw error;
         }
         
-        setRoadmaps(data || []);
-        setFilteredRoadmaps(data || []);
+        setRoadmaps((data || []).map(rm => ({
+          ...rm,
+          favorite: !!rm.favorite
+        })));
+        setFilteredRoadmaps((data || []).map(rm => ({
+          ...rm,
+          favorite: !!rm.favorite
+        })));
       } catch (error) {
         console.error("Error fetching roadmaps:", error);
       } finally {
@@ -108,6 +115,10 @@ const Roadmaps = () => {
         break;
     }
 
+    if (showFavoritesOnly) {
+      filtered = filtered.filter(rm => rm.favorite);
+    }
+
     // Apply sorting
     switch (sortOrder) {
       case 'newest':
@@ -125,7 +136,7 @@ const Roadmaps = () => {
     }
 
     setFilteredRoadmaps(filtered);
-  }, [roadmaps, searchQuery, sortOrder, dateFilter]);
+  }, [roadmaps, searchQuery, sortOrder, dateFilter, showFavoritesOnly]);
 
   const handleViewRoadmap = (id: string) => {
     navigate(`/roadmap/${id}`);
@@ -187,8 +198,28 @@ const Roadmaps = () => {
     }
   };
 
+  const handleToggleFavorite = async (id, currentFavorite) => {
+    const { error } = await supabase
+      .from('roadmaps')
+      .update({ favorite: !currentFavorite })
+      .eq('id', id);
+    if (!error) {
+      setRoadmaps(prev => prev.map(rm =>
+        rm.id === id ? { ...rm, favorite: !currentFavorite } : rm
+      ));
+      setFilteredRoadmaps(prev => prev.map(rm =>
+        rm.id === id ? { ...rm, favorite: !currentFavorite } : rm
+      ));
+    }
+  };
+
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white relative">
+      <div className="absolute top-6 left-6 z-20">
+        <Button variant="outline" size="icon" onClick={() => navigate('/dashboard')} className="">
+          <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </Button>
+      </div>
       <main className="flex-1 container py-8">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold">Your Roadmaps</h1>
@@ -199,7 +230,7 @@ const Roadmaps = () => {
         </div>
 
         {/* Search and Filter Section */}
-        <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
             <Input
@@ -234,6 +265,16 @@ const Roadmaps = () => {
               <SelectItem value="title-desc">Title (Z-A)</SelectItem>
             </SelectContent>
           </Select>
+          <div className="flex items-center justify-end">
+            <Button
+              variant={showFavoritesOnly ? "secondary" : "outline"}
+              onClick={() => setShowFavoritesOnly(v => !v)}
+              className="flex items-center gap-2"
+            >
+              <StarFilled className={showFavoritesOnly ? "text-yellow-400" : "text-gray-400"} />
+              {showFavoritesOnly ? "Showing Favorites" : "Show Only Favorites"}
+            </Button>
+          </div>
         </div>
         
         {isLoading ? (
@@ -290,6 +331,18 @@ const Roadmaps = () => {
                       onClick={() => handleEditClick(roadmap)}
                     >
                       <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => handleToggleFavorite(roadmap.id, roadmap.favorite)}
+                      title={roadmap.favorite ? "Unfavorite" : "Favorite"}
+                    >
+                      {roadmap.favorite ? (
+                        <Star className="h-4 w-4 text-yellow-400" />
+                      ) : (
+                        <StarOff className="h-4 w-4 text-gray-400" />
+                      )}
                     </Button>
                     <Button 
                       variant="destructive"

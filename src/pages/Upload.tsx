@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { FileUp, UploadIcon } from "lucide-react";
+import { useState, useEffect } from "react";
+import { FileUp, UploadIcon, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
@@ -10,15 +10,38 @@ import { supabase } from "@/integrations/supabase/client";
 
 // Use the local worker file in public/
 const { GlobalWorkerOptions } = pdfjsLib;
-GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+GlobalWorkerOptions.workerSrc = '/src/pages/pdf.worker.min.js';
 
 const Upload = () => {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [roadmapLimitReached, setRoadmapLimitReached] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
+  
+  // Check auth state and roadmap count on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsLoggedIn(!!user);
+      
+      if (user) {
+        const { count, error } = await supabase
+          .from('roadmaps')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id);
+        if (!error && (count || 0) >= 5) {
+          setRoadmapLimitReached(true);
+        } else {
+          setRoadmapLimitReached(false);
+        }
+      }
+    };
+    checkAuth();
+  }, []);
   
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -64,24 +87,67 @@ const Upload = () => {
   };
   
   const handleProcessPdf = async () => {
-    if (!file) return;
+    console.log('handleProcessPdf called');
+    if (!file) {
+      console.log('No file selected');
+      return;
+    }
+    console.log('File selected:', file);
     setIsProcessing(true);
     setProgress(0);
     try {
+      console.log('Processing PDF...');
+      // Check if user already has 5 roadmaps
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { count, error: countError } = await supabase
+          .from('roadmaps')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id);
+        if (countError) throw countError;
+        if ((count || 0) >= 5) {
+          toast({
+            title: "Roadmap limit reached",
+            description: "You can only create up to 5 roadmaps. Please delete an existing roadmap to add a new one.",
+            variant: "destructive",
+          });
+          setRoadmapLimitReached(true);
+          setIsProcessing(false);
+          return;
+        } else {
+          setRoadmapLimitReached(false);
+        }
+      }
       // Extract structured content from PDF
-      const pdfContent = await extractTextFromPdf(file);
+      console.log('About to extract text from PDF:', file);
+      let pdfContent;
+      try {
+        pdfContent = await extractTextFromPdf(file);
+      } catch (err) {
+        console.error('extractTextFromPdf threw:', err);
+        throw err;
+      }
+      console.log('PDF content extracted:', pdfContent);
       setProgress(30);
       // Generate roadmap data from structured content
       const roadmapData = await generateRoadmap(pdfContent, file.name.replace('.pdf', ''));
+      console.log('Roadmap data generated:', roadmapData);
       setProgress(70);
       // Save roadmap to Supabase
-      const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { error } = await supabase.from('roadmaps').insert({
           user_id: user.id,
           title: roadmapData.title,
           content: JSON.parse(JSON.stringify(roadmapData)),
         });
+        if (!error) {
+          // Insert into pdfs table for accurate dashboard stats
+          await supabase.from('pdfs').insert({
+            user_id: user.id,
+            file_name: file.name,
+            uploaded_at: new Date().toISOString(),
+          });
+        }
         if (error) {
           toast({
             title: "Failed to save roadmap",
@@ -118,36 +184,44 @@ const Upload = () => {
   
   // Improved extraction: returns structured content
   const extractTextFromPdf = async (pdfFile: File): Promise<Array<{type: string, text: string}>> => {
+    console.log('Starting PDF text extraction...');
     const arrayBuffer = await pdfFile.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    let structured: Array<{type: string, text: string}> = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      let lastFontSize = 0;
-      let paragraph = '';
-      for (const item of content.items) {
-        // @ts-ignore
-        const str = item.str;
-        // @ts-ignore
-        const fontSize = item.transform ? Math.abs(item.transform[0]) : 10;
-        // Heuristic: large font = heading, else paragraph
-        if (fontSize > 16) {
-          if (paragraph.trim()) {
-            structured.push({ type: 'paragraph', text: paragraph.trim() });
-            paragraph = '';
+    console.log('ArrayBuffer obtained:', arrayBuffer);
+    try {
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let structured: Array<{type: string, text: string}> = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        let lastFontSize = 0;
+        let paragraph = '';
+        for (const item of content.items) {
+          // @ts-ignore
+          const str = item.str;
+          // @ts-ignore
+          const fontSize = item.transform ? Math.abs(item.transform[0]) : 10;
+          // Heuristic: large font = heading, else paragraph
+          if (fontSize > 16) {
+            if (paragraph.trim()) {
+              structured.push({ type: 'paragraph', text: paragraph.trim() });
+              paragraph = '';
+            }
+            structured.push({ type: 'heading', text: str.trim() });
+          } else {
+            paragraph += str + ' ';
           }
-          structured.push({ type: 'heading', text: str.trim() });
-        } else {
-          paragraph += str + ' ';
+          lastFontSize = fontSize;
         }
-        lastFontSize = fontSize;
+        if (paragraph.trim()) {
+          structured.push({ type: 'paragraph', text: paragraph.trim() });
+        }
       }
-      if (paragraph.trim()) {
-        structured.push({ type: 'paragraph', text: paragraph.trim() });
-      }
+      console.log('PDF text extraction completed:', structured);
+      return structured;
+    } catch (error) {
+      console.error('Error loading PDF:', error);
+      throw error;
     }
-    return structured;
   };
   
   const resetUpload = () => {
@@ -156,12 +230,27 @@ const Upload = () => {
     setIsProcessing(false);
   };
 
+  const handleBack = () => {
+    if (isLoggedIn) {
+      navigate('/dashboard');
+    } else {
+      navigate('/');
+    }
+  };
+
   return (
-    <div className="flex flex-col min-h-screen">      
-      <main className="flex-1 container py-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 relative">
+      {/* Back Button */}
+      <button
+        onClick={handleBack}
+        className="fixed top-5 left-5 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200 shadow-sm z-10"
+        title="Back"
+      >
+        <ArrowLeft className="h-5 w-5 text-gray-600 dark:text-gray-300" />
+      </button>
+
+      <main className="flex-1 container pt-20 pb-8 px-4">
         <div className="max-w-3xl mx-auto">
-          <h1 className="text-3xl font-bold mb-6">Upload PDF</h1>
-          
           <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
             {!isProcessing ? (
               <div 

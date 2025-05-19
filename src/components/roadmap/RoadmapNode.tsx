@@ -1,6 +1,6 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { CheckCircle, Star } from 'lucide-react';
+import { CheckCircle, Bookmark } from 'lucide-react';
 
 interface RoadmapNodeProps {
   id: string;
@@ -15,23 +15,17 @@ interface RoadmapNodeProps {
     bookmarked?: boolean;
     tooltip?: string;
     inProgress?: boolean;
+    colorPalette?: string[];
   };
   isConnectable: boolean;
 }
 
 const RoadmapNode = ({ data, isConnectable }: RoadmapNodeProps) => {
-  const getBgColor = () => {
-    switch (data.depth) {
-      case 0:
-        return 'bg-indigo-800 text-white';
-      case 1:
-        return 'bg-indigo-600 text-white';
-      case 2:
-        return 'bg-indigo-400 text-white';
-      default:
-        return 'bg-indigo-300 text-indigo-900';
-    }
-  };
+  // Use colorPalette if provided, otherwise fallback to indigo
+  const palette = data.colorPalette || ['#3730a3', '#6366f1', '#a5b4fc', '#c7d2fe', '#e0e7ff'];
+  const depth = Math.min(data.depth || 0, palette.length - 1);
+  const bgColor = palette[depth];
+  const textColor = depth < 2 ? '#fff' : '#111827';
 
   // Determine status: completed, in progress, not started
   let status: 'completed' | 'inProgress' | 'notStarted' = 'notStarted';
@@ -49,14 +43,37 @@ const RoadmapNode = ({ data, isConnectable }: RoadmapNodeProps) => {
     }
   };
 
+  const [hovered, setHovered] = useState(false);
+
   return (
     <div
-      className={`px-4 py-2 rounded-md shadow-md relative ${getBgColor()} ${getStatusBorder()} transition duration-150 hover:scale-105 hover:ring-2 hover:ring-indigo-400 hover:z-10`}
-      title={data.tooltip || data.description}
+      className={`relative px-4 py-2 rounded-md shadow-md ${getStatusBorder()} transition duration-150 hover:scale-105 hover:ring-2 hover:ring-indigo-400 hover:z-10`}
+      style={{ background: bgColor, color: textColor }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
+      {/* Custom Tooltip */}
+      {hovered && (
+        <div
+          className="absolute z-50 rounded px-3 py-2 shadow-lg pointer-events-none text-[7px]"
+          style={{
+            left: 'calc(50% - 20px)',
+            transform: 'translateX(-50%)',
+            whiteSpace: 'pre-line',
+            width: 150,
+            minHeight: 80,
+            background: bgColor,
+            color: textColor,
+            bottom: '100%',
+            marginBottom: 8
+          }}
+        >
+          {data.description}
+        </div>
+      )}
       <div className="flex items-center gap-1 font-medium text-sm">
         {data.bookmarked && (
-          <span title="Bookmarked"><Star className="h-4 w-4 text-yellow-300" /></span>
+          <span title="Bookmarked"><Bookmark className="h-4 w-4 text-yellow-400" fill="none" /></span>
         )}
         <span>{data.title}</span>
         {data.completed && (

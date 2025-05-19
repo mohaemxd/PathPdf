@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronDown, ChevronUp, Star, StarOff, CheckCircle, Eye, EyeOff, Brain } from "lucide-react";
+import { ChevronDown, ChevronUp, Bookmark, CheckCircle, Eye, EyeOff, Brain } from "lucide-react";
+import { supabase } from '@/lib/supabase';
 
 interface NodeDetailsProps {
   node: {
@@ -15,6 +16,11 @@ interface NodeDetailsProps {
     parentId?: string;
     detailedDescription?: string;
     codeExample?: string;
+    image?: {
+      url: string;
+      alt: string;
+      caption?: string;
+    };
     resources?: {
       label: string;
       url: string;
@@ -22,6 +28,7 @@ interface NodeDetailsProps {
       type: string;
       discount?: string;
     }[];
+    completed?: boolean;
   };
   isExpanded: boolean;
   onExpandNode: (nodeId: string) => void;
@@ -29,13 +36,12 @@ interface NodeDetailsProps {
   onStatusChange?: () => void;
   focusMode?: boolean;
   setFocusMode?: (v: boolean) => void;
+  onBookmarkChange?: () => void;
+  onToggleNodeComplete?: (nodeId: string) => void;
 }
 
-const NodeDetails = ({ node, isExpanded, onExpandNode, getBreadcrumbs, onStatusChange, focusMode, setFocusMode }: NodeDetailsProps) => {
+const NodeDetails = ({ node, isExpanded, onExpandNode, getBreadcrumbs, onStatusChange, focusMode, setFocusMode, onBookmarkChange, onToggleNodeComplete }: NodeDetailsProps) => {
   const [showOriginal, setShowOriginal] = useState(false);
-  const [completed, setCompleted] = useState(() => {
-    return localStorage.getItem(`node-complete-${node.id}`) === 'true';
-  });
   const [inProgress, setInProgress] = useState(() => {
     return localStorage.getItem(`node-inprogress-${node.id}`) === 'true';
   });
@@ -44,26 +50,73 @@ const NodeDetails = ({ node, isExpanded, onExpandNode, getBreadcrumbs, onStatusC
   });
 
   const handleComplete = () => {
-    localStorage.setItem(`node-complete-${node.id}`, String(!completed));
-    setCompleted(!completed);
-    if (!completed) {
-      localStorage.setItem(`node-inprogress-${node.id}`, 'false');
-      setInProgress(false);
+    if (onToggleNodeComplete) {
+      onToggleNodeComplete(node.id);
     }
     if (onStatusChange) onStatusChange();
   };
   const handleInProgress = () => {
     localStorage.setItem(`node-inprogress-${node.id}`, String(!inProgress));
     setInProgress(!inProgress);
-    if (!inProgress) {
-      localStorage.setItem(`node-complete-${node.id}`, 'false');
-      setCompleted(false);
-    }
     if (onStatusChange) onStatusChange();
   };
-  const handleBookmark = () => {
-    localStorage.setItem(`node-bookmark-${node.id}`, String(!bookmarked));
-    setBookmarked(!bookmarked);
+  const handleBookmark = async () => {
+    try {
+      // Get the current roadmap ID from the URL
+      const roadmapId = window.location.pathname.split('/').pop();
+      if (!roadmapId) return;
+
+      // Get current favorites for this roadmap
+      const { data: currentFavorites } = await supabase
+        .from('roadmap_favorites')
+        .select('favorite_node_ids')
+        .eq('roadmap_id', roadmapId)
+        .single();
+
+      let newFavoriteNodeIds: string[] = [];
+      
+      if (currentFavorites) {
+        // If we have existing favorites, update them
+        newFavoriteNodeIds = currentFavorites.favorite_node_ids || [];
+        if (!bookmarked) {
+          // Add the node ID if it's not already in the array
+          if (!newFavoriteNodeIds.includes(node.id)) {
+            newFavoriteNodeIds.push(node.id);
+          }
+        } else {
+          // Remove the node ID if it exists
+          newFavoriteNodeIds = newFavoriteNodeIds.filter(id => id !== node.id);
+        }
+
+        // Update the favorites
+        await supabase
+          .from('roadmap_favorites')
+          .update({ favorite_node_ids: newFavoriteNodeIds })
+          .eq('roadmap_id', roadmapId);
+      } else {
+        // If no favorites exist yet, create a new entry
+        if (!bookmarked) {
+          newFavoriteNodeIds = [node.id];
+          await supabase
+            .from('roadmap_favorites')
+            .insert({
+              roadmap_id: roadmapId,
+              favorite_node_ids: newFavoriteNodeIds
+            });
+        }
+      }
+
+      // Update local state
+      const newBookmarkedState = !bookmarked;
+      localStorage.setItem(`node-bookmark-${node.id}`, String(newBookmarkedState));
+      setBookmarked(newBookmarkedState);
+
+      // Force a refresh of the nodes to update the UI
+      if (onStatusChange) onStatusChange();
+      if (onBookmarkChange) onBookmarkChange();
+    } catch (error) {
+      console.error('Error updating favorites:', error);
+    }
   };
 
   // Breadcrumbs
@@ -74,7 +127,7 @@ const NodeDetails = ({ node, isExpanded, onExpandNode, getBreadcrumbs, onStatusC
   }
 
   return (
-    <div className="w-90 border-l border-gray-200 bg-gray-50 p-4 overflow-auto">
+    <div className="w-90 border-l-2 border-black bg-gray-50 p-4 overflow-auto h-full min-h-screen">
       {/* Focus Mode Button */}
       {typeof focusMode === 'boolean' && typeof setFocusMode === 'function' && (
         <div className="mb-3 flex justify-end">
@@ -100,25 +153,41 @@ const NodeDetails = ({ node, isExpanded, onExpandNode, getBreadcrumbs, onStatusC
         </nav>
       )}
       <div className="flex items-center gap-2 mb-2">
-        <h2 className="text-xl font-semibold flex-1">{node.title}</h2>
+        <h2 className="text-xl font-semibold mb-3 flex-1">{node.title}</h2>
         <button onClick={handleBookmark} title={bookmarked ? "Remove bookmark" : "Bookmark"}>
-          {bookmarked ? <Star className="h-5 w-5 text-yellow-400" /> : <StarOff className="h-5 w-5 text-gray-400" />}
+          <Bookmark className={`h-5 w-5 ${bookmarked ? 'text-yellow-400 fill-yellow-400' : 'text-gray-400'}`} fill={bookmarked ? 'currentColor' : 'none'} />
         </button>
         <button onClick={handleInProgress} title={inProgress ? "Mark as not in progress" : "Mark as in progress"}>
           <svg className={`h-5 w-5 ${inProgress ? 'text-yellow-500' : 'text-gray-400'} ${inProgress ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" strokeWidth="4" className="opacity-25" /><path className="opacity-75" d="M4 12a8 8 0 018-8v8z" /></svg>
         </button>
-        <button onClick={handleComplete} title={completed ? "Mark as incomplete" : "Mark as complete"}>
-          <CheckCircle className={`h-5 w-5 ${completed ? 'text-green-500' : 'text-gray-400'}`} />
+        <button onClick={handleComplete} title={node.completed ? "Mark as incomplete" : "Mark as complete"}>
+          <CheckCircle className={`h-5 w-5 ${node.completed ? 'text-green-500' : 'text-gray-400'}`} />
         </button>
       </div>
-      <p className="text-gray-600 mb-4">{node.description}</p>
-      {/* Detailed Description Section */}
-      {node.detailedDescription && (
-        <details className="mb-4 group" open={node.detailedDescription.length < 300}>
-          <summary className="font-semibold text-gray-800 cursor-pointer select-none mb-1 group-open:mb-2">More Details</summary>
-          <div className="text-gray-700 text-sm whitespace-pre-line">{node.detailedDescription}</div>
-        </details>
+      {node.detailedDescription ? (
+        <div className="text-gray-700 text-base whitespace-pre-line mb-4">{node.detailedDescription}</div>
+      ) : (
+        <div className="text-gray-500 italic mb-4">No detailed information available for this topic.</div>
       )}
+      
+      {/* Visual Resource */}
+      {node.image && (
+        <div className="mb-4">
+          <div className="relative rounded-lg overflow-hidden border border-gray-200">
+            <img 
+              src={node.image.url} 
+              alt={node.image.alt}
+              className="w-full h-auto object-cover"
+            />
+            {node.image.caption && (
+              <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-2">
+                {node.image.caption}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Example Code Snippet */}
       {node.codeExample && (
         <div className="mb-4">
@@ -177,20 +246,35 @@ const NodeDetails = ({ node, isExpanded, onExpandNode, getBreadcrumbs, onStatusC
                 </span>
                 <div className="flex-1 border-t border-green-400 ml-2" />
               </div>
-              <ul className="space-y-2">
+          <ul className="space-y-2">
                 {node.resources.filter(r => r.free).map((r, i) => (
                   <li key={i} className="flex items-center gap-2">
-                    <span className={
-                      r.type === 'article' ? 'bg-yellow-300 text-yellow-900' :
-                      r.type === 'video' ? 'bg-purple-200 text-purple-900' :
-                      'bg-gray-200 text-gray-800'
-                    + ' px-2 py-0.5 rounded text-xs font-semibold border border-gray-300'}>
-                      {r.type.charAt(0).toUpperCase() + r.type.slice(1)}
-                    </span>
+                    {r.type === 'video' ? (
+                      <span className="inline-flex justify-center items-center w-6 h-6 rounded text-xs font-semibold border border-gray-300">
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                          <rect width="24" height="24" rx="4" fill="#fff"/>
+                          <path d="M21.8 7.2a2.8 2.8 0 0 0-2-2C18 5 12 5 12 5s-6 0-7.8.2a2.8 2.8 0 0 0-2 2A29.9 29.9 0 0 0 2 12a29.9 29.9 0 0 0 .2 4.8 a 2.8 2.8 0 0 0 2 2C6 19 12 19 12 19s6 0 7.8-.2a 2.8 2.8 0 0 0 2-2A 29.9 29.9 0 0 0 22 12 a 29.9 29.9 0 0 0-.2-4.8zM 10 15V 9l 6 3-6 3z" fill="#FF0000"/>
+                        </svg>
+                      </span>
+                    ) : r.type === 'article' ? (
+                      <span className="inline-flex justify-center items-center w-6 h-6 rounded text-xs font-semibold border border-gray-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
+                          <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+                          <path d="M10 9H8"/>
+                          <path d="M16 13H8"/>
+                          <path d="M16 17H8"/>
+                        </svg>
+                      </span>
+                    ) : (
+                      <span className="bg-gray-200 text-gray-800 px-2 py-0.5 rounded text-xs font-semibold border border-gray-300">
+                        {r.type.charAt(0).toUpperCase() + r.type.slice(1)}
+                      </span>
+                    )}
                     <a href={r.url} target="_blank" rel="noopener noreferrer" className="font-bold underline text-pathpdf-700 hover:text-pathpdf-900">
                       {r.label}
                     </a>
-                  </li>
+            </li>
                 ))}
               </ul>
             </div>
@@ -220,9 +304,9 @@ const NodeDetails = ({ node, isExpanded, onExpandNode, getBreadcrumbs, onStatusC
                     <a href={r.url} target="_blank" rel="noopener noreferrer" className="font-bold underline text-pathpdf-700 hover:text-pathpdf-900">
                       {r.label}
                     </a>
-                  </li>
+            </li>
                 ))}
-              </ul>
+          </ul>
               {/* Note on Premium Resources */}
               <div className="mt-4 bg-gray-100 border border-gray-300 rounded p-3 text-xs text-gray-700">
                 <strong>Note on Premium Resources</strong><br />

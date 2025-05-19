@@ -14,6 +14,11 @@ export interface RoadmapNode {
   title: string;
   description: string;
   detailedDescription?: string;
+  image?: {
+    url: string;
+    alt: string;
+    caption?: string;
+  };
   children: RoadmapNode[];
   parentId?: string;
   resources: Resource[];
@@ -75,7 +80,13 @@ Given the following structured content from a PDF, generate a hierarchical learn
   "rootNode": {
     "id": "node-1",
     "title": "<root topic>",
-    "description": "<description>",
+    "description": "<short description>",
+    "detailedDescription": "<detailed explanation of the topic, including what it is, why it matters, and any important context or examples>",
+    "image": {
+      "url": "<URL to a relevant image that helps explain the concept visually>",
+      "alt": "<descriptive alt text for the image>",
+      "caption": "<optional caption explaining the image>"
+    },
     "resources": [
       {
         "type": "article|video|course|documentation|other",
@@ -89,7 +100,13 @@ Given the following structured content from a PDF, generate a hierarchical learn
       {
         "id": "node-2",
         "title": "<subtopic>",
-        "description": "<description>",
+        "description": "<short description>",
+        "detailedDescription": "<detailed explanation of the subtopic>",
+        "image": {
+          "url": "<URL to a relevant image that helps explain the concept visually>",
+          "alt": "<descriptive alt text for the image>",
+          "caption": "<optional caption explaining the image>"
+        },
         "resources": [ ... ],
         "children": [ ... ]
       }
@@ -97,11 +114,13 @@ Given the following structured content from a PDF, generate a hierarchical learn
   }
 }
 
-- For each topic (node), provide a list of 2-4 learning resources (articles, videos(especially youtube videos, make sure to search for that as students like that resource, and give the correct youtube URL), courses, documentation, etc.) with their type, label, url, free (true/false), and optional discount.
--For each Topic (node), make sure if the topic has talked about some different subtopics or examples/implementations/applications/functions/etc, you assign a subnode to each one of those sutopics.
+- For each topic (node), provide BOTH a concise 'description' (1-2 sentences) and a much more in-depth 'detailedDescription' (several sentences or a paragraph) that explains the topic, its importance, and any relevant context or examples.
+- For topics that would benefit from visual explanation, include an 'image' object with a URL to a relevant image, descriptive alt text, and an optional caption. The image should be educational and help clarify the concept. Only use images from Wikimedia Commons, Unsplash, or other open/free sources that allow direct linking and hotlinking. Do not use images from sites that block hotlinking or require authentication.
+- For each topic (node), provide a list of 2-4 learning resources (articles, videos (especially YouTube videos, make sure to search for that as students like that resource, and give the correct YouTube URL), courses, documentation, etc.) with their type, label, url, free (true/false), and optional discount.
+- For each Topic (node), make sure if the topic has talked about some different subtopics or examples/implementations/applications/functions/etc, you assign a subnode to each one of those subtopics.
 - Assign sequential "id" values ("node-1", "node-2", etc.) ensuring each node has a unique ID
-- Make the descriptions learner-focused, by referring to online recourses, so that you would be able to perfectly and concisely explain both WHAT the topic is about in detail and do not overlook any mentioned information in the content and WHY that topic matters, if the information is incomplete or lacks details you add those details
--For the number of levels the hierarchical tree would have there are no limits, it would depend on the complexity of the content and the depth of the topic.
+- Make the descriptions learner-focused, by referring to online resources, so that you would be able to perfectly and concisely explain both WHAT the topic is about in detail and do not overlook any mentioned information in the content and WHY that topic matters, if the information is incomplete or lacks details you add those details
+- For the number of levels the hierarchical tree would have there are no limits, it would depend on the complexity of the content and the depth of the topic.
 - Return ONLY the JSON with NO additional explanation or text
 
 Structured PDF Content:
@@ -190,6 +209,21 @@ function validateRoadmapData(data: any): RoadmapData {
     
     if (!node.description) {
       node.description = "No description available.";
+    }
+
+    // Ensure detailedDescription exists
+    if (!node.detailedDescription) {
+      node.detailedDescription = "";
+    }
+    // Preserve image if present
+    if (node.image && typeof node.image === 'object') {
+      node.image = {
+        url: node.image.url || '',
+        alt: node.image.alt || '',
+        caption: node.image.caption || ''
+      };
+    } else {
+      node.image = undefined;
     }
     
     // Initialize children array if not present

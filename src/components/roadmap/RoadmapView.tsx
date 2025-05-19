@@ -13,22 +13,38 @@ import NodeDetails from './NodeDetails';
 import RoadmapNode from './RoadmapNode';
 import { RoadmapData } from '@/lib/gemini';
 import { Search, Maximize2, Minimize2 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 // Custom node types
 const nodeTypes = {
   roadmapNode: RoadmapNode,
 };
 
+// Add color-blind-friendly palette
+const COLOR_PALETTES = {
+  blue:   ['#0072B2', '#56B4E9', '#92C5DE', '#D1E5F0', '#F7FBFF'],
+  orange: ['#E69F00', '#F0E442', '#FFD700', '#FFDDC1', '#FFF7E6'],
+  green:  ['#009E73', '#A6D854', '#B8E186', '#D9F0D3', '#F7FCF5'],
+  purple: ['#CC79A7', '#CAB2D6', '#E6CCE6', '#F2E5F7', '#F7F4FA'],
+  black:  ['#000000', '#525252', '#969696', '#D9D9D9', '#F7F7F7'],
+};
+
 interface RoadmapViewProps {
   roadmapData: RoadmapData;
+  selectedNodeId?: string;
+  onBookmarkChange?: () => void;
+  completedNodeIds?: string[];
+  onToggleNodeComplete?: (nodeId: string) => void;
 }
 
-export default function RoadmapView({ roadmapData }: RoadmapViewProps) {
+export default function RoadmapView({ roadmapData, selectedNodeId, onBookmarkChange, completedNodeIds = [], onToggleNodeComplete }: RoadmapViewProps) {
   const [nodeDetails, setNodeDetails] = useState<any>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['node-1'])); // Root node always expanded
   const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>({});
   const [statusRefresh, setStatusRefresh] = useState(0); // NEW: for status sync
   const [focusMode, setFocusMode] = useState(false); // NEW: focus mode
+  const [selectedColor, setSelectedColor] = useState<'blue' | 'orange' | 'green' | 'purple' | 'black'>('black');
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
 
   // Helper: Find path from root to a node by id (returns array of node IDs)
   function getBreadcrumbIds(nodeId: string): string[] {
@@ -188,6 +204,70 @@ export default function RoadmapView({ roadmapData }: RoadmapViewProps) {
     }
   }, [expandedNodes, nodePositions, roadmapData]);
 
+  // Load favorite nodes when roadmap is loaded
+  useEffect(() => {
+    const loadFavoriteNodes = async () => {
+      try {
+        const roadmapId = window.location.pathname.split('/').pop();
+        if (!roadmapId) return;
+
+        // Clear existing bookmarks first
+        const allNodes = document.querySelectorAll('[id^="node-"]');
+        allNodes.forEach(node => {
+          const nodeId = node.id;
+          localStorage.removeItem(`node-bookmark-${nodeId}`);
+        });
+
+        const { data: favorites } = await supabase
+          .from('roadmap_favorites')
+          .select('favorite_node_ids')
+          .eq('roadmap_id', roadmapId)
+          .single();
+
+        if (favorites?.favorite_node_ids) {
+          // Set bookmarked state for each favorite node
+          favorites.favorite_node_ids.forEach((nodeId: string) => {
+            localStorage.setItem(`node-bookmark-${nodeId}`, 'true');
+          });
+        }
+      } catch (error) {
+        console.error('Error loading favorite nodes:', error);
+      }
+    };
+
+    loadFavoriteNodes();
+  }, [roadmapData]);
+
+  // Helper to select a node by ID
+  const setNodeDetailsById = useCallback((nodeId: string) => {
+    function findNode(node: any): any {
+      if (!node) return null;
+      if (node.id === nodeId) return node;
+      if (node.children) {
+        for (const child of node.children) {
+          const found = findNode(child);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+    const found = findNode(roadmapData.rootNode);
+    if (found) setNodeDetails(found);
+  }, [roadmapData]);
+
+  // Select node when selectedNodeId changes
+  useEffect(() => {
+    if (selectedNodeId) {
+      setNodeDetailsById(selectedNodeId);
+    }
+  }, [selectedNodeId, setNodeDetailsById]);
+
+  // Callback to trigger refresh when status changes in sidebar
+  const handleStatusChange = useCallback(() => {
+    setStatusRefresh((r) => r + 1);
+    if (onBookmarkChange) onBookmarkChange();
+  }, [onBookmarkChange]);
+
   // No data state
   if (!roadmapData) {
     return (
@@ -197,32 +277,66 @@ export default function RoadmapView({ roadmapData }: RoadmapViewProps) {
     );
   }
 
-  // Callback to trigger refresh when status changes in sidebar
-  const handleStatusChange = useCallback(() => {
-    setStatusRefresh((r) => r + 1);
-  }, []);
-
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 flex">
-        <div className="flex-1">
+        <div className="flex-1 relative">
+          <div className="absolute right-12 top-1 z-10 flex flex-col gap-2 bg-white/80 rounded-lg shadow p-1">
+            <div className="relative">
+              <button
+                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center border-gray-300`}
+                style={{ background: COLOR_PALETTES[selectedColor][0] }}
+                onClick={() => setColorPickerOpen((open) => !open)}
+                title={selectedColor.charAt(0).toUpperCase() + selectedColor.slice(1)}
+              >
+                <span className="w-3 h-3 rounded-full border-2 border-white bg-white" />
+              </button>
+              <div
+                className={`
+                  absolute right-8 top-[-3px] flex flex-row gap-2 bg-white/80 rounded-lg shadow p-1
+                  transition-all duration-200 ease-in-out
+                  h-8
+                  ${colorPickerOpen ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'}
+                `}
+                style={{ zIndex: 20 }}
+              >
+                {Object.entries(COLOR_PALETTES).map(([colorKey, palette], idx) => (
+                  <button
+                    key={colorKey}
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${selectedColor === colorKey ? 'border-red-500' : 'border-gray-300'}`}
+                    style={{ background: palette[0] }}
+                    onClick={() => {
+                      setSelectedColor(colorKey as any);
+                      setColorPickerOpen(false);
+                    }}
+                    title={colorKey.charAt(0).toUpperCase() + colorKey.slice(1)}
+                    aria-label={colorKey.charAt(0).toUpperCase() + colorKey.slice(1) + ' color theme'}
+                  >
+                    {selectedColor === colorKey && <span className="w-3 h-3 rounded-full border-2 border-white bg-white" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
           <ReactFlow
             nodes={filteredNodes.map(node => ({
               ...node,
               data: {
                 ...node.data,
-                completed: localStorage.getItem(`node-complete-${node.id}`) === 'true',
+                completed: completedNodeIds.includes(node.id),
                 inProgress: localStorage.getItem(`node-inprogress-${node.id}`) === 'true',
                 bookmarked: localStorage.getItem(`node-bookmark-${node.id}`) === 'true',
                 // Tooltip: description for preview
                 tooltip: node.data.description,
+                colorPalette: COLOR_PALETTES[selectedColor],
+                colorKey: selectedColor,
               },
             }))}
             edges={filteredEdges.map(edge => ({
               ...edge,
               style: edge.highlighted
                 ? { stroke: '#2563eb', strokeWidth: 4 }
-                : { stroke: '#0ea5e9', strokeWidth: 2 },
+                : { stroke: COLOR_PALETTES[selectedColor][0], strokeWidth: 2 },
             }))}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
@@ -245,6 +359,7 @@ export default function RoadmapView({ roadmapData }: RoadmapViewProps) {
                        node.data.depth === 2 ? '#818CF8' : '#A5B4FC';
               }}
               maskColor="#f8fafc80"
+              style={{ border: '2px solid #e1e1e1'}}
             />
             <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
           </ReactFlow>
@@ -253,21 +368,23 @@ export default function RoadmapView({ roadmapData }: RoadmapViewProps) {
         {/* Resizable Sidebar */}
         {nodeDetails && (
           <ResizableSidebar>
-          <NodeDetails 
-            node={{
-              ...nodeDetails,
-              hasChildren: nodeDetails.hasChildren ?? (Array.isArray(nodeDetails.children) && nodeDetails.children.length > 0),
-              completed: localStorage.getItem(`node-complete-${nodeDetails.id}`) === 'true',
-              inProgress: localStorage.getItem(`node-inprogress-${nodeDetails.id}`) === 'true',
-              bookmarked: localStorage.getItem(`node-bookmark-${nodeDetails.id}`) === 'true',
-            }}
-            onExpandNode={onExpandNode} 
-            isExpanded={expandedNodes.has(nodeDetails.id)}
-            getBreadcrumbs={getBreadcrumbs}
-            onStatusChange={handleStatusChange}
-            focusMode={focusMode}
-            setFocusMode={setFocusMode}
-          />
+            <NodeDetails 
+              node={{
+                ...nodeDetails,
+                hasChildren: nodeDetails.hasChildren ?? (Array.isArray(nodeDetails.children) && nodeDetails.children.length > 0),
+                completed: completedNodeIds.includes(nodeDetails.id),
+                inProgress: localStorage.getItem(`node-inprogress-${nodeDetails.id}`) === 'true',
+                bookmarked: localStorage.getItem(`node-bookmark-${nodeDetails.id}`) === 'true',
+              }}
+              onExpandNode={onExpandNode}
+              isExpanded={expandedNodes.has(nodeDetails.id)}
+              getBreadcrumbs={getBreadcrumbs}
+              onStatusChange={handleStatusChange}
+              onBookmarkChange={onBookmarkChange}
+              focusMode={focusMode}
+              setFocusMode={setFocusMode}
+              onToggleNodeComplete={onToggleNodeComplete}
+            />
           </ResizableSidebar>
         )}
       </div>

@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from '../integrations/supabase/client';
 import { Database } from '../types/supabase';
-import { Eye, EyeOff, User, Shield, Sliders, HardDrive, Plug, HelpCircle } from "lucide-react";
+import { Eye, EyeOff, User, Shield, Sliders, HardDrive, Plug, HelpCircle, FileText, Settings as SettingsIcon, ArrowLeft } from "lucide-react";
+import { NotionIntegration } from "../components/NotionIntegration";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { useNavigate } from "react-router-dom";
 
 type UserProfile = Database['public']['Tables']['user_profiles']['Row'];
 
@@ -9,9 +12,9 @@ const SECTIONS = [
   { key: "profile", label: "Profile", icon: <User className="h-5 w-5 mr-2" /> },
   { key: "security", label: "Security", icon: <Shield className="h-5 w-5 mr-2" /> },
   { key: "preferences", label: "Preferences", icon: <Sliders className="h-5 w-5 mr-2" /> },
-  { key: "storage", label: "Storage & Usage", icon: <HardDrive className="h-5 w-5 mr-2" /> },
   { key: "integrations", label: "Integrations", icon: <Plug className="h-5 w-5 mr-2" /> },
   { key: "support", label: "About us, Support & Feedback", icon: <HelpCircle className="h-5 w-5 mr-2" /> },
+  { key: "legal", label: "Legal", icon: <FileText className="h-5 w-5 mr-2" /> },
 ];
 
 const SECTION_LABELS: Record<string, string> = Object.fromEntries(SECTIONS.map(s => [s.key, s.label]));
@@ -42,6 +45,14 @@ export default function AccountSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [feedbackType, setFeedbackType] = useState('General Feedback');
+  const [feedbackSubject, setFeedbackSubject] = useState('');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const navigate = useNavigate();
 
   const fetchProfile = async () => {
     try {
@@ -191,21 +202,57 @@ export default function AccountSettings() {
       `&response_type=token` +
       `&scope=${encodeURIComponent(GOOGLE_SCOPE)}` +
       `&include_granted_scopes=true`;
-    window.open(authUrl, "_self");
+    
+    window.location.href = authUrl;
   }
 
+  const handleDeleteAccount = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Delete user profile from your user_profiles table (if exists)
+        await supabase.from('user_profiles').delete().eq('id', user.id);
+        // Delete the user from Supabase Auth (client-side sign out)
+        await supabase.auth.signOut();
+        // Optionally, redirect to home page
+        window.location.href = "/?account_deleted=1";
+      }
+    } catch (err) {
+      alert('Failed to delete account. Please contact support.');
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex relative">
+      {/* Back to Dashboard Button */}
+      <div className="fixed top-5 left-30  ml-5 mb-2 z-10 flex items-center justify-center">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="rounded-full bg-white border border-gray-200 shadow p-2 hover:bg-gray-100 transition flex items-center justify-center"
+          title="Back to Dashboard"
+        >
+          <ArrowLeft className="h-5 w-5 text-gray-700" />
+        </button>
+      </div>
       {/* Sidebar */}
-      <aside className="w-64 bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800 p-6 flex flex-col gap-2">
-        <h2 className="text-lg font-bold mb-4 text-pathpdf-700 dark:text-white">Settings</h2>
+      <aside className="w-64 bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800 pt-20 pr-6 pb-6 pl-6 flex flex-col gap-2">
+        <h2 className="text-lg font-bold mb-4 text-black flex items-center gap-2">
+          <SettingsIcon className="h-5 w-5 mr-1" />
+          Settings
+        </h2>
         {SECTIONS.map(section => (
           <button
             key={section.key}
-            className={`text-left px-4 py-2 rounded transition font-medium flex items-center ${activeSection === section.key ? 'bg-pathpdf-300 dark:bg-gray-800 text-pathpdf-500 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-500 dark:hover:bg-gray-300'}`}
+            className={`text-left px-4 py-2 rounded transition font-medium flex items-center
+              ${activeSection === section.key
+                ? 'bg-gray-300 text-black'
+                : 'text-black hover:bg-gray-200'}
+            `}
             onClick={() => setActiveSection(section.key)}
           >
-            {section.icon}
+            {section.icon && typeof section.icon === 'object'
+              ? <span className="text-black mr-2">{section.icon}</span>
+              : section.icon}
             {section.label}
           </button>
         ))}
@@ -216,125 +263,156 @@ export default function AccountSettings() {
           <h1 className="text-2xl font-bold mb-6 text-gray-900 dark:text-white">{SECTION_LABELS[activeSection]}</h1>
           {/* Section Panels */}
           {activeSection === "profile" && (
-            <div className="bg-white dark:bg-gray-950 rounded-lg shadow p-6 mb-8">
-              <h2 className="text-xl font-semibold mb-4">User Profile</h2>
-              {loading ? (
-                <div className="text-gray-400">Loading profile...</div>
-              ) : (
-                <form className="flex flex-col gap-6" onSubmit={e => e.preventDefault()}>
-                  {/* Avatar Upload */}
-                  <div className="flex items-center gap-6">
-                    <div className="relative">
-                      <div className="w-24 h-24 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center overflow-hidden border-2 border-pathpdf-200 dark:border-gray-700">
-                        {avatar ? (
-                          <img src={avatar} alt="Avatar" className="object-cover w-full h-full" />
-                        ) : (
-                          <span className="text-4xl text-gray-400">👤</span>
+            <>
+              <div className="bg-white dark:bg-gray-950 rounded-lg shadow p-6 mt-8 mb-8">
+                <h2 className="text-xl font-semibold mb-4">User Profile</h2>
+                {loading ? (
+                  <div className="text-gray-400">Loading profile...</div>
+                ) : (
+                  <form className="flex flex-col gap-6" onSubmit={e => e.preventDefault()}>
+                    {/* Avatar Upload */}
+                    <div className="flex items-center gap-6">
+                      <div className="relative">
+                        <div className="w-24 h-24 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center overflow-hidden border-2 border-black dark:border-black">
+                          {avatar ? (
+                            <img src={avatar} alt="Avatar" className="object-cover w-full h-full" />
+                          ) : (
+                            <span className="text-4xl text-gray-400">👤</span>
+                          )}
+                        </div>
+                        {editing && (
+                          <button
+                            type="button"
+                            className="absolute bottom-0 right-0 bg-pathpdf-600 text-white rounded-full p-2 shadow hover:bg-pathpdf-700 transition"
+                            onClick={() => fileInputRef.current?.click()}
+                            title="Upload profile picture"
+                            disabled={saving}
+                          >
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                          </button>
                         )}
-                      </div>
-                      {editing && (
-                        <button
-                          type="button"
-                          className="absolute bottom-0 right-0 bg-pathpdf-600 text-white rounded-full p-2 shadow hover:bg-pathpdf-700 transition"
-                          onClick={() => fileInputRef.current?.click()}
-                          title="Upload profile picture"
-                          disabled={saving}
-                        >
-                          <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                        </button>
-                      )}
-                      {avatar && editing && (
-                        <button
-                          type="button"
-                          className="absolute top-0 right-0 bg-red-500 text-white rounded-full p-1 shadow hover:bg-red-600 transition"
-                          onClick={handleRemoveAvatar}
-                          title="Remove profile picture"
-                          disabled={saving}
-                        >
-                          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        ref={fileInputRef}
-                        onChange={handleAvatarChange}
-                        disabled={!editing || saving}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <div className="mb-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Full Name</label>
+                        {avatar && editing && (
+                          <button
+                            type="button"
+                            className="absolute top-0 right-0 bg-red-500 text-white rounded-full p-1 shadow hover:bg-red-600 transition"
+                            onClick={handleRemoveAvatar}
+                            title="Remove profile picture"
+                            disabled={saving}
+                          >
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                          </button>
+                        )}
                         <input
-                          type="text"
-                          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pathpdf-500"
-                          value={fullName}
-                          onChange={e => setFullName(e.target.value)}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          ref={fileInputRef}
+                          onChange={handleAvatarChange}
                           disabled={!editing || saving}
                         />
                       </div>
-                      <div className="mb-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email Address</label>
-                        <input
-                          type="email"
-                          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pathpdf-500"
-                          value={email}
-                          disabled
-                        />
-                      </div>
-                      <div className="mb-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
-                        <input
-                          type="text"
-                          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pathpdf-500"
-                          value={username}
-                          onChange={e => setUsername(e.target.value)}
-                          disabled={!editing || saving}
-                        />
-                      </div>
-                      <div className="mb-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role</label>
-                        <select
-                          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pathpdf-500"
-                          value={role}
-                          onChange={e => setRole(e.target.value)}
-                          disabled={!editing || saving}
-                        >
-                          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                        </select>
+                      <div className="flex-1">
+                        <div className="mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">How can we call you?</label>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pathpdf-500"
+                            value={fullName}
+                            onChange={e => setFullName(e.target.value)}
+                            disabled={!editing || saving}
+                          />
+                        </div>
+                        <div className="mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email Address</label>
+                          <input
+                            type="email"
+                            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pathpdf-500"
+                            value={email}
+                            disabled
+                          />
+                        </div>
+                        <div className="mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pathpdf-500"
+                            value={username}
+                            onChange={e => setUsername(e.target.value)}
+                            disabled={!editing || saving}
+                          />
+                        </div>
+                        <div className="mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role</label>
+                          <select
+                            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pathpdf-500"
+                            value={role}
+                            onChange={e => setRole(e.target.value)}
+                            disabled={!editing || saving}
+                          >
+                            {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  {/* Edit/Save/Cancel Buttons */}
-                  <div className="flex gap-3 mt-6 justify-end">
-                    {!editing ? (
-                      <button
-                        type="button"
-                        className="px-6 py-2 rounded bg-pathpdf-600 text-white font-semibold hover:bg-pathpdf-700 transition"
-                        onClick={() => setEditing(true)}
-                        disabled={saving}
-                      >Edit</button>
-                    ) : (
-                      <>
+                    {/* Edit/Save/Cancel Buttons */}
+                    <div className="flex gap-3 mt-6 justify-end">
+                      {!editing ? (
                         <button
                           type="button"
-                          className="px-6 py-2 rounded bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white font-semibold hover:bg-gray-300 dark:hover:bg-gray-600 transition"
-                          onClick={handleCancel}
+                          className="px-6 py-2 rounded bg-black text-white font-semibold hover:bg-gray-900 transition"
+                          onClick={() => setEditing(true)}
                           disabled={saving}
-                        >Cancel</button>
-                        <button
-                          type="button"
-                          className="px-6 py-2 rounded bg-pathpdf-600 text-white font-semibold hover:bg-pathpdf-700 transition"
-                          onClick={handleSave}
-                          disabled={saving}
-                        >{saving ? 'Saving...' : 'Save'}</button>
-                      </>
-                    )}
-                  </div>
-                </form>
-              )}
-            </div>
+                        >Edit</button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="px-6 py-2 rounded bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white font-semibold hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+                            onClick={handleCancel}
+                            disabled={saving}
+                          >Cancel</button>
+                          <button
+                            type="button"
+                            className="px-6 py-2 rounded bg-black text-white font-semibold hover:bg-gray-900 transition"
+                            onClick={handleSave}
+                            disabled={saving}
+                          >{saving ? 'Saving...' : 'Save'}</button>
+                        </>
+                      )}
+                    </div>
+                  </form>
+                )}
+              </div>
+              {/* Delete Account Warning Box */}
+              <div className="border border-red-400 rounded-lg p-6 mb-8 bg-white dark:bg-gray-950">
+                <div className="font-semibold text-red-600 mb-1">Delete Account</div>
+                <div className="text-gray-600 dark:text-gray-300 mb-4">
+                  Permanently delete your account, all of your roadmaps, and their respective data. This action cannot be undone - please proceed with caution.
+                </div>
+                <button
+                  className="px-5 py-2 rounded bg-red-500 text-white font-semibold hover:bg-red-600 transition"
+                  onClick={() => setDeleteDialogOpen(true)}
+                >
+                  Delete Account
+                </button>
+                <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you sure you want to delete your account?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action cannot be undone. All your data will be permanently deleted.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction className="bg-red-500 hover:bg-red-600" onClick={handleDeleteAccount}>
+                        Yes, delete my account
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </>
           )}
           {activeSection === "security" && (
             <div className="bg-white dark:bg-gray-950 rounded-lg shadow p-6 mb-8">
@@ -360,12 +438,6 @@ export default function AccountSettings() {
               <div className="text-gray-500">Email, push, and in-app notification settings will go here.</div>
             </div>
           )}
-          {activeSection === "storage" && (
-            <div className="bg-white dark:bg-gray-950 rounded-lg shadow p-6 mb-8">
-              <h2 className="text-xl font-semibold mb-2">Storage & Usage</h2>
-              <div className="text-gray-500">Document library, storage usage, and stats will go here.</div>
-            </div>
-          )}
           {activeSection === "integrations" && (
             <div className="bg-white dark:bg-gray-950 rounded-lg shadow p-6 mb-8">
               <h2 className="text-xl font-semibold mb-4">Discover new connections</h2>
@@ -375,8 +447,16 @@ export default function AccountSettings() {
                   <img src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/googledrive.svg" alt="Google Drive" className="h-8 w-8 mb-2" />
                   <div className="font-bold text-lg">Google Drive</div>
                   <div className="text-gray-500 text-sm flex-1">Export and save your generated roadmaps as PDF files directly to your Google Drive for easy access and sharing.</div>
-                  <span className="inline-block bg-gray-100 text-gray-500 text-xs rounded px-2 py-1 w-max mb-2">LINK PREVIEW</span>
-                  <button onClick={handleDriveConnect} className="mt-auto px-4 py-2 rounded bg-blue-100 text-blue-700 font-semibold hover:bg-blue-200 transition">Connect</button>
+                  <span className="inline-block bg-gray-100 text-gray-500 text-xs rounded px-2 py-1 w-max mb-2">COMING SOON</span>
+                  <button disabled className="mt-auto px-4 py-2 rounded bg-gray-200 text-gray-500 font-semibold cursor-not-allowed">Connect</button>
+                </div>
+                {/* Notion */}
+                <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 p-6 flex flex-col gap-3 shadow-sm">
+                  <img src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/notion.svg" alt="Notion" className="h-8 w-8 mb-2" />
+                  <div className="font-bold text-lg">Notion</div>
+                  <div className="text-gray-500 text-sm flex-1">Turn your Notion pages into actionable roadmaps with AI.</div>
+                  <span className="inline-block bg-gray-100 text-gray-500 text-xs rounded px-2 py-1 w-max mb-2">COMING SOON</span>
+                  <button disabled className="mt-auto px-4 py-2 rounded bg-gray-200 text-gray-500 font-semibold cursor-not-allowed">Connect</button>
                 </div>
               </div>
               {/* See all section */}
@@ -389,8 +469,80 @@ export default function AccountSettings() {
           )}
           {activeSection === "support" && (
             <div className="bg-white dark:bg-gray-950 rounded-lg shadow p-6 mb-8">
-              <h2 className="text-xl font-semibold mb-2">Support & Feedback</h2>
-              <div className="text-gray-500">FAQ, contact, bug report, and feedback will go here.</div>
+              <h2 className="text-xl font-semibold mb-2">About us, Support & Feedback</h2>
+              <div className="mb-6 text-gray-700 dark:text-gray-300">
+                <p className="mb-2">PathPDF is dedicated to transforming educational PDFs into interactive learning roadmaps. Our mission is to make learning more accessible, personalized, and engaging for everyone.</p>
+                <p className="mb-2">If you have any questions, need help, or want to provide feedback, please use the form below. Our support team will get back to you as soon as possible.</p>
+              </div>
+              <div className="max-w-lg mx-auto">
+                <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-6 shadow-sm">
+                  <h3 className="text-lg font-bold mb-1">Send us your feedback</h3>
+                  <p className="text-gray-500 mb-4">We value your thoughts! Please let us know how we can improve your experience or if you have any suggestions.</p>
+                  <form className="flex flex-col gap-4" onSubmit={async (e) => {
+                    e.preventDefault();
+                    setFeedbackLoading(true);
+                    setFeedbackSuccess(null);
+                    setFeedbackError(null);
+                    try {
+                      const res = await fetch('/functions/v1/send-feedback', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          type: feedbackType,
+                          subject: feedbackSubject,
+                          message: feedbackMessage,
+                          email,
+                          user_id: email ? email : undefined,
+                        }),
+                      });
+                      if (res.ok) {
+                        setFeedbackSuccess('Feedback sent! Thank you.');
+                        setFeedbackType('General Feedback');
+                        setFeedbackSubject('');
+                        setFeedbackMessage('');
+                      } else {
+                        setFeedbackError('Failed to send feedback. Please try again.');
+                      }
+                    } catch (err) {
+                      setFeedbackError('Failed to send feedback. Please try again.');
+                    }
+                    setFeedbackLoading(false);
+                  }}>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Feedback Type</label>
+                      <select className="w-full rounded border border-gray-300 bg-gray-50 px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black" required value={feedbackType} onChange={e => setFeedbackType(e.target.value)}>
+                        <option>General Feedback</option>
+                        <option>Feature Request</option>
+                        <option>Bug Report</option>
+                        <option>Account Issue</option>
+                        <option>Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Subject</label>
+                      <input className="w-full rounded border border-gray-300 bg-gray-50 px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black" placeholder="Let us know what this is about..." required value={feedbackSubject} onChange={e => setFeedbackSubject(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Your Feedback</label>
+                      <textarea className="w-full rounded border border-gray-300 bg-gray-50 px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black" rows={3} placeholder="Please share your thoughts, suggestions, or issues here." required value={feedbackMessage} onChange={e => setFeedbackMessage(e.target.value)} />
+                    </div>
+                    {feedbackSuccess && <div className="text-green-600 text-sm text-center">{feedbackSuccess}</div>}
+                    {feedbackError && <div className="text-red-600 text-sm text-center">{feedbackError}</div>}
+                    <div className="flex justify-between mt-2">
+                      <button type="button" className="px-6 py-2 rounded bg-gray-200 text-gray-800 font-semibold hover:bg-gray-300 transition" onClick={() => {
+                        setFeedbackType('General Feedback');
+                        setFeedbackSubject('');
+                        setFeedbackMessage('');
+                        setFeedbackSuccess(null);
+                        setFeedbackError(null);
+                      }}>Cancel</button>
+                      <button type="submit" className="px-6 py-2 rounded bg-black text-white font-semibold hover:bg-gray-900 transition" disabled={feedbackLoading}>
+                        {feedbackLoading ? 'Sending...' : 'Submit'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
             </div>
           )}
           {activeSection === "account" && (
@@ -403,6 +555,29 @@ export default function AccountSettings() {
             <div className="bg-white dark:bg-gray-950 rounded-lg shadow p-6 mb-8">
               <h2 className="text-xl font-semibold mb-2">Accessibility</h2>
               <div className="text-gray-500">Font size, color mode, and accessibility options will go here.</div>
+            </div>
+          )}
+          {activeSection === "legal" && (
+            <div className="bg-white dark:bg-gray-950 rounded-lg shadow p-6 mb-8">
+              <h2 className="text-xl font-semibold mb-2">Legal</h2>
+              <div className="flex flex-col gap-4">
+                <a
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-pathpdf-600 hover:underline text-lg font-medium"
+                >
+                  Privacy Policy
+                </a>
+                <a
+                  href="/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-pathpdf-600 hover:underline text-lg font-medium"
+                >
+                  Terms of Use
+                </a>
+              </div>
             </div>
           )}
         </div>
@@ -516,7 +691,7 @@ function ChangePasswordForm() {
       {success && <div className="text-green-600 text-sm">{success}</div>}
       <button
         type="submit"
-        className="px-6 py-2 rounded bg-pathpdf-600 text-white font-semibold hover:bg-pathpdf-700 transition mt-2"
+        className="px-6 py-2 rounded bg-black text-white font-semibold hover:bg-gray-900 transition mt-2"
         disabled={loading}
       >
         {loading ? "Updating..." : "Change Password"}
@@ -575,10 +750,68 @@ function PreferencesPanel() {
       {success && <div className="text-green-600 text-sm">{success}</div>}
       <button
         type="submit"
-        className="px-6 py-2 rounded bg-pathpdf-600 text-white font-semibold hover:bg-pathpdf-700 transition mt-2"
+        className="px-6 py-2 rounded bg-black text-white font-semibold hover:bg-gray-900 transition mt-2"
       >
         Save Preferences
       </button>
     </form>
+  );
+}
+
+function IntegrationsPanel() {
+  const [isDriveConnected, setIsDriveConnected] = useState(false);
+  useEffect(() => {
+    // Example: fetch from Supabase user profile or metadata
+    async function checkDriveConnection() {
+      const { data: { user } } = await supabase.auth.getUser();
+      // Adjust this logic based on your actual storage of the connection status
+      if (user && user.user_metadata && user.user_metadata.google_drive_connected) {
+        setIsDriveConnected(true);
+      } else {
+        setIsDriveConnected(false);
+      }
+    }
+    checkDriveConnection();
+  }, []);
+  function handleDriveConnect() {
+    const authUrl =
+      `https://accounts.google.com/o/oauth2/v2/auth?` +
+      `client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}` +
+      `&redirect_uri=${encodeURIComponent(GOOGLE_REDIRECT_URI)}` +
+      `&response_type=token` +
+      `&scope=${encodeURIComponent(GOOGLE_SCOPE)}` +
+      `&include_granted_scopes=true`;
+    window.location.href = authUrl;
+  }
+  return (
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <h3 className="text-lg font-medium">Connected Services</h3>
+        <p className="text-sm text-muted-foreground">
+          Connect your accounts to enhance your experience
+        </p>
+      </div>
+      <div className="space-y-6">
+        <NotionIntegration />
+        {/* Google Drive Integration */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-medium">Google Drive</h3>
+              <p className="text-sm text-muted-foreground">
+                Connect your Google Drive to import and export files
+              </p>
+            </div>
+            <button
+              disabled
+              className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors bg-gray-200 text-gray-500 h-10 px-4 py-2 cursor-not-allowed"
+              title="Coming soon"
+            >
+              Coming soon
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 } 

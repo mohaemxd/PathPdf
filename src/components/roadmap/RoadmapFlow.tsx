@@ -1,4 +1,3 @@
-
 import { useState, useCallback } from "react";
 import {
   ReactFlow,
@@ -105,7 +104,7 @@ const RoadmapFlow: React.FC<RoadmapFlowProps> = ({ roadmapData, onNodeClick }) =
       maxZoom={1.5}
     >
       <Controls />
-      <MiniMap zoomable pannable />
+      <MiniMap zoomable pannable style={{ border: '1px solid black' }} />
       <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
     </ReactFlow>
   );

@@ -6,18 +6,8 @@ import { FileUp, BookOpen, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const Demo = () => {
-  const [roadmap, setRoadmap] = useState(sampleRoadmap);
-
-  useEffect(() => {
-    const stored = localStorage.getItem('currentRoadmap');
-    if (stored) {
-      try {
-        setRoadmap(JSON.parse(stored));
-      } catch (e) {
-        setRoadmap(sampleRoadmap);
-      }
-    }
-  }, []);
+  // Always use the sample roadmap for the demo page
+  const roadmap = sampleRoadmap;
 
   return (
     <div className="flex flex-col min-h-screen bg-white dark:bg-gray-900">

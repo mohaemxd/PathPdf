@@ -1,0 +1,1 @@
+create table if not exists feedback (id uuid primary key default uuid_generate_v4(), user_id text, email text, type text, subject text, message text, created_at timestamp with time zone default now());
