@@ -9,10 +9,9 @@ import {
   BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import NodeDetails from './NodeDetails';
-import RoadmapNode from './RoadmapNode';
+import NodeDetails from '@/components/roadmap/NodeDetails';
+import RoadmapNode from '@/components/roadmap/RoadmapNode';
 import { RoadmapData } from '@/lib/gemini';
-import { Search, Maximize2, Minimize2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 // Custom node types
